@@ -1,0 +1,7 @@
+{
+  "name": "OpenV",
+  "description": "OpenV — Secure Browser & OSINT (v0.1 Alpha). Navegador Android nativo com foco em segurança, privacidade e OSINT.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

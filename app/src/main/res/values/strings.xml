@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">OpenV</string>
+    <string name="nav_browser">Navegador</string>
+    <string name="nav_search">Pesquisa</string>
+    <string name="nav_shield">Proteção</string>
+    <string name="nav_osint">OSINT</string>
+    <string name="nav_settings">Configurações</string>
+
+    <string name="search_hint">Buscar ou digitar URL...</string>
+    <string name="tab_new">Nova Aba</string>
+    <string name="tab_new_private">Nova Aba Privada</string>
+    <string name="tabs_title">Abas Abertas</string>
+    <string name="close_tab">Fechar aba</string>
+    <string name="home_title">OpenV Alpha 0.1</string>
+    <string name="home_subtitle">Navegação Segura &amp; Ferramentas OSINT</string>
+    
+    <string name="bookmarks_title">Favoritos</string>
+    <string name="history_title">Histórico</string>
+    <string name="clear_data">Limpar dados de navegação</string>
+    <string name="desktop_mode">Modo Computador</string>
+    <string name="share_url">Compartilhar URL</string>
+    <string name="copy_url">Copiar link</string>
+</resources>
