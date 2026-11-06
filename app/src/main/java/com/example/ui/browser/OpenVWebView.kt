@@ -34,6 +34,10 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.example.data.model.TabItem
 import com.example.security.TrackerBlocker
+import com.example.ui.browser.menu.DetectedMedia
+import com.example.ui.browser.menu.ExtractedImage
+import org.json.JSONArray
+import org.json.JSONTokener
 
 private const val DESKTOP_USER_AGENT =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -58,6 +62,16 @@ fun OpenVWebView(
     onExternalUrlConsumed: () -> Unit,
     findQuery: String? = null,
     zoomAction: Int = 0, // 1 = zoomIn, -1 = zoomOut
+    isWebDarkMode: Boolean = false,
+    isReaderMode: Boolean = false,
+    scriptToExecute: String? = null,
+    onScriptExecuted: () -> Unit = {},
+    extractImagesTrigger: Long = 0L,
+    onImagesExtracted: (List<ExtractedImage>) -> Unit = {},
+    extractVideosTrigger: Long = 0L,
+    onVideosDetected: (List<DetectedMedia>) -> Unit = {},
+    viewSourceTrigger: Long = 0L,
+    onSourceExtracted: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -169,6 +183,180 @@ fun OpenVWebView(
         if (externalLoadUrl != null && !externalLoadUrl.startsWith("openv://")) {
             webView.loadUrl(externalLoadUrl)
             onExternalUrlConsumed()
+        }
+    }
+
+    // React to Web Dark Mode
+    LaunchedEffect(isWebDarkMode) {
+        if (isWebDarkMode) {
+            val darkCss = """
+                (function() {
+                    var id = 'openv-dark-mode-style';
+                    var s = document.getElementById(id);
+                    if (!s) {
+                        s = document.createElement('style');
+                        s.id = id;
+                        s.textContent = 'html { filter: invert(90%) hue-rotate(180deg) !important; background: #121212 !important; } img, video, canvas, svg { filter: invert(100%) hue-rotate(180deg) !important; }';
+                        document.head.appendChild(s);
+                    }
+                })()
+            """.trimIndent()
+            webView.evaluateJavascript(darkCss, null)
+        } else {
+            webView.evaluateJavascript("(function(){ var s = document.getElementById('openv-dark-mode-style'); if(s) s.remove(); })()", null)
+        }
+    }
+
+    // React to Reader Mode
+    LaunchedEffect(isReaderMode) {
+        if (isReaderMode) {
+            val readerJs = """
+                (function() {
+                    var id = 'openv-reader-mode-style';
+                    var s = document.getElementById(id);
+                    if (!s) {
+                        s = document.createElement('style');
+                        s.id = id;
+                        s.textContent = 'aside, nav, header, footer, .ad, .ads, [class*="banner"], [id*="banner"], [class*="popup"], [id*="cookie"] { display: none !important; } body { max-width: 740px !important; margin: 0 auto !important; padding: 24px !important; line-height: 1.8 !important; font-size: 19px !important; }';
+                        document.head.appendChild(s);
+                    }
+                })()
+            """.trimIndent()
+            webView.evaluateJavascript(readerJs, null)
+        } else {
+            webView.evaluateJavascript("(function(){ var s = document.getElementById('openv-reader-mode-style'); if(s) s.remove(); })()", null)
+        }
+    }
+
+    // React to custom user script execution
+    LaunchedEffect(scriptToExecute) {
+        if (!scriptToExecute.isNullOrBlank()) {
+            webView.evaluateJavascript(scriptToExecute, null)
+            onScriptExecuted()
+        }
+    }
+
+    // Extract images from DOM
+    LaunchedEffect(extractImagesTrigger) {
+        if (extractImagesTrigger > 0L) {
+            val js = """
+                (function() {
+                    var imgs = Array.from(document.querySelectorAll('img, picture source'));
+                    var list = [];
+                    var seen = new Set();
+                    imgs.forEach(function(el) {
+                        var src = el.src || el.currentSrc || el.getAttribute('srcset') || '';
+                        if (src && !seen.has(src) && !src.startsWith('data:image/svg+xml')) {
+                            seen.add(src);
+                            list.push({
+                                url: src,
+                                alt: el.alt || el.title || '',
+                                width: el.naturalWidth || el.clientWidth || 0,
+                                height: el.naturalHeight || el.clientHeight || 0,
+                                mime: 'image/jpeg'
+                            });
+                        }
+                    });
+                    return JSON.stringify(list.slice(0, 60));
+                })()
+            """.trimIndent()
+            webView.evaluateJavascript(js) { result ->
+                try {
+                    val jsonStr = if (result != null && result != "null") {
+                        if (result.startsWith("\"") && result.endsWith("\"")) {
+                            JSONTokener(result).nextValue().toString()
+                        } else result
+                    } else "[]"
+                    val array = JSONArray(jsonStr)
+                    val list = mutableListOf<ExtractedImage>()
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        list.add(
+                            ExtractedImage(
+                                url = obj.optString("url"),
+                                alt = obj.optString("alt"),
+                                width = obj.optInt("width", 0),
+                                height = obj.optInt("height", 0),
+                                mimeType = obj.optString("mime", "image/jpeg")
+                            )
+                        )
+                    }
+                    onImagesExtracted(list)
+                } catch (_: Exception) {
+                    onImagesExtracted(emptyList())
+                }
+            }
+        }
+    }
+
+    // Detect videos from DOM
+    LaunchedEffect(extractVideosTrigger) {
+        if (extractVideosTrigger > 0L) {
+            val js = """
+                (function() {
+                    var vids = Array.from(document.querySelectorAll('video, video source, a[href$=".mp4"], a[href$=".webm"], a[href$=".mkv"]'));
+                    var list = [];
+                    var seen = new Set();
+                    vids.forEach(function(el) {
+                        var src = el.src || el.currentSrc || el.getAttribute('href') || '';
+                        if (src && !seen.has(src)) {
+                            seen.add(src);
+                            var isBlob = src.startsWith('blob:') || src.startsWith('data:');
+                            var ext = src.split('.').pop().split('?')[0].toLowerCase();
+                            list.push({
+                                title: document.title || 'Vídeo Web',
+                                url: src,
+                                mimeType: isBlob ? 'video/mp4' : ('video/' + (ext || 'mp4')),
+                                isBlobOrStream: isBlob,
+                                approximateSize: 'Desconhecido'
+                            });
+                        }
+                    });
+                    return JSON.stringify(list.slice(0, 30));
+                })()
+            """.trimIndent()
+            webView.evaluateJavascript(js) { result ->
+                try {
+                    val jsonStr = if (result != null && result != "null") {
+                        if (result.startsWith("\"") && result.endsWith("\"")) {
+                            JSONTokener(result).nextValue().toString()
+                        } else result
+                    } else "[]"
+                    val array = JSONArray(jsonStr)
+                    val list = mutableListOf<DetectedMedia>()
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        list.add(
+                            DetectedMedia(
+                                title = obj.optString("title", "Vídeo Web"),
+                                url = obj.optString("url"),
+                                mimeType = obj.optString("mimeType", "video/mp4"),
+                                isBlobOrStream = obj.optBoolean("isBlobOrStream", false),
+                                approximateSize = obj.optString("approximateSize", "Desconhecido")
+                            )
+                        )
+                    }
+                    onVideosDetected(list)
+                } catch (_: Exception) {
+                    onVideosDetected(emptyList())
+                }
+            }
+        }
+    }
+
+    // View source
+    LaunchedEffect(viewSourceTrigger) {
+        if (viewSourceTrigger > 0L) {
+            webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { rawResult ->
+                val unquoted = try {
+                    if (rawResult != null && rawResult.startsWith("\"") && rawResult.endsWith("\"")) {
+                        JSONTokener(rawResult).nextValue().toString()
+                    } else rawResult ?: ""
+                } catch (_: Exception) {
+                    rawResult ?: ""
+                }
+                onSourceExtracted(unquoted)
+            }
         }
     }
 

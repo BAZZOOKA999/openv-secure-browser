@@ -44,10 +44,17 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Cookie
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -87,6 +94,7 @@ import com.example.ui.theme.OpenVSurfaceElevated
 import com.example.ui.theme.OpenVSurfaceVariant
 import com.example.ui.theme.OpenVTextPrimary
 import com.example.ui.theme.OpenVTextSecondary
+import com.example.ui.theme.OpenVWarningOrange
 import java.net.URLEncoder
 
 @Composable
@@ -107,6 +115,12 @@ fun AddressBar(
     onFindInPage: (String?) -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
+    onScanSiteSecurity: () -> Unit = {},
+    onDetectVideos: () -> Unit = {},
+    onExtractImages: () -> Unit = {},
+    onClearCookies: () -> Unit = {},
+    onOpenExtensions: () -> Unit = {},
+    onOpenPermissions: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -349,7 +363,9 @@ fun AddressBar(
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    modifier = Modifier.background(OpenVSurface)
+                    modifier = Modifier
+                        .background(OpenVSurface)
+                        .heightIn(max = 480.dp)
                 ) {
                     // Bookmark toggle
                     DropdownMenuItem(
@@ -492,6 +508,70 @@ fun AddressBar(
                         onClick = {
                             menuExpanded = false
                             onClearData()
+                        }
+                    )
+
+                    HorizontalDivider(color = OpenVBorder, modifier = Modifier.padding(vertical = 4.dp))
+
+                    // 🛡️ 1. Escanear Segurança do Site
+                    DropdownMenuItem(
+                        text = { Text("Escanear Segurança do Site", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null, tint = OpenVBlue) },
+                        onClick = {
+                            menuExpanded = false
+                            onScanSiteSecurity()
+                        }
+                    )
+
+                    // 🎬 2. Detectar e Baixar Vídeos
+                    DropdownMenuItem(
+                        text = { Text("Detectar e Baixar Vídeos", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null, tint = OpenVBlue) },
+                        onClick = {
+                            menuExpanded = false
+                            onDetectVideos()
+                        }
+                    )
+
+                    // 🖼️ 3. Extrair Imagens do Site
+                    DropdownMenuItem(
+                        text = { Text("Extrair Imagens do Site", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, tint = OpenVBlue) },
+                        onClick = {
+                            menuExpanded = false
+                            onExtractImages()
+                        }
+                    )
+
+                    // 🍪 4. Limpar Cookies
+                    DropdownMenuItem(
+                        text = { Text("Limpar Cookies", color = OpenVWarningOrange) },
+                        leadingIcon = { Icon(Icons.Default.Cookie, contentDescription = null, tint = OpenVWarningOrange) },
+                        onClick = {
+                            menuExpanded = false
+                            onClearCookies()
+                        }
+                    )
+
+                    HorizontalDivider(color = OpenVBorder, modifier = Modifier.padding(vertical = 4.dp))
+
+                    // 🧩 5. Extensões e Ferramentas
+                    DropdownMenuItem(
+                        text = { Text("Extensões e Ferramentas", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Extension, contentDescription = null, tint = OpenVBlue) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenExtensions()
+                        }
+                    )
+
+                    // ⚙️ 6. Permissões do Android
+                    DropdownMenuItem(
+                        text = { Text("Permissões do Android", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = OpenVTextSecondary) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenPermissions()
                         }
                     )
                 }

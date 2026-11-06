@@ -58,6 +58,15 @@ import com.example.ui.browser.DownloadsDialog
 import com.example.ui.browser.OpenVHomeScreen
 import com.example.ui.browser.OpenVWebView
 import com.example.ui.browser.TabSwitcherDialog
+import com.example.ui.browser.menu.AndroidPermissionsDialog
+import com.example.ui.browser.menu.ClearCookiesDialog
+import com.example.ui.browser.menu.DetectedMedia
+import com.example.ui.browser.menu.ExtractedImage
+import com.example.ui.browser.menu.ExtensionsDialog
+import com.example.ui.browser.menu.ImageExtractorDialog
+import com.example.ui.browser.menu.MediaDetectorDialog
+import com.example.ui.browser.menu.SiteSecurityScanDialog
+import com.example.ui.browser.menu.SourceViewerDialog
 import com.example.ui.osint.OsintScreen
 import com.example.ui.search.SearchScreen
 import com.example.ui.settings.SettingsScreen
@@ -104,6 +113,26 @@ fun MainScreen(viewModel: BrowserViewModel) {
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBookmarksAndHistory by remember { mutableStateOf(false) }
     var showDownloads by remember { mutableStateOf(false) }
+    var showSiteSecurityScan by remember { mutableStateOf(false) }
+    var showMediaDetector by remember { mutableStateOf(false) }
+    var showImageExtractor by remember { mutableStateOf(false) }
+    var showClearCookies by remember { mutableStateOf(false) }
+    var showExtensions by remember { mutableStateOf(false) }
+    var showPermissions by remember { mutableStateOf(false) }
+    var showSourceViewer by remember { mutableStateOf(false) }
+
+    // Extension & DOM interaction states
+    var isWebDarkMode by remember { mutableStateOf(false) }
+    var isReaderMode by remember { mutableStateOf(false) }
+    var scriptToExecute by remember { mutableStateOf<String?>(null) }
+    var extractImagesTrigger by remember { mutableStateOf(0L) }
+    var extractedImagesList by remember { mutableStateOf<List<ExtractedImage>>(emptyList()) }
+    var isExtractingImages by remember { mutableStateOf(false) }
+    var extractVideosTrigger by remember { mutableStateOf(0L) }
+    var detectedVideosList by remember { mutableStateOf<List<DetectedMedia>>(emptyList()) }
+    var isDetectingVideos by remember { mutableStateOf(false) }
+    var viewSourceTrigger by remember { mutableStateOf(0L) }
+    var pageSourceHtml by remember { mutableStateOf("") }
 
     val isCurrentUrlBookmarked = remember(activeTab?.url, bookmarks) {
         val currentUrl = activeTab?.url ?: ""
@@ -111,8 +140,15 @@ fun MainScreen(viewModel: BrowserViewModel) {
     }
 
     // Android system back button & gesture handling
-    BackHandler(enabled = showDownloads || showTabSwitcher || showBookmarksAndHistory || currentSectionIndex != 0 || (activeTab != null && activeTab?.url != "openv://home")) {
+    BackHandler(enabled = showSiteSecurityScan || showMediaDetector || showImageExtractor || showClearCookies || showExtensions || showPermissions || showSourceViewer || showDownloads || showTabSwitcher || showBookmarksAndHistory || currentSectionIndex != 0 || (activeTab != null && activeTab?.url != "openv://home")) {
         when {
+            showSiteSecurityScan -> showSiteSecurityScan = false
+            showMediaDetector -> showMediaDetector = false
+            showImageExtractor -> showImageExtractor = false
+            showClearCookies -> showClearCookies = false
+            showExtensions -> showExtensions = false
+            showPermissions -> showPermissions = false
+            showSourceViewer -> showSourceViewer = false
             showTabSwitcher -> showTabSwitcher = false
             showBookmarksAndHistory -> showBookmarksAndHistory = false
             showDownloads -> showDownloads = false
@@ -218,7 +254,21 @@ fun MainScreen(viewModel: BrowserViewModel) {
                                 viewModel.setFindInPageQuery(q)
                             },
                             onZoomIn = { viewModel.triggerZoomIn() },
-                            onZoomOut = { viewModel.triggerZoomOut() }
+                            onZoomOut = { viewModel.triggerZoomOut() },
+                            onScanSiteSecurity = { showSiteSecurityScan = true },
+                            onDetectVideos = {
+                                isDetectingVideos = true
+                                extractVideosTrigger = System.currentTimeMillis()
+                                showMediaDetector = true
+                            },
+                            onExtractImages = {
+                                isExtractingImages = true
+                                extractImagesTrigger = System.currentTimeMillis()
+                                showImageExtractor = true
+                            },
+                            onClearCookies = { showClearCookies = true },
+                            onOpenExtensions = { showExtensions = true },
+                            onOpenPermissions = { showPermissions = true }
                         )
 
                         // Kill switch navigation lock check
@@ -338,7 +388,26 @@ fun MainScreen(viewModel: BrowserViewModel) {
                                     externalLoadUrl = loadUrlEvent,
                                     onExternalUrlConsumed = { viewModel.clearLoadUrlEvent() },
                                     findQuery = findQuery,
-                                    zoomAction = zoomAction
+                                    zoomAction = zoomAction,
+                                    isWebDarkMode = isWebDarkMode,
+                                    isReaderMode = isReaderMode,
+                                    scriptToExecute = scriptToExecute,
+                                    onScriptExecuted = { scriptToExecute = null },
+                                    extractImagesTrigger = extractImagesTrigger,
+                                    onImagesExtracted = { imgs ->
+                                        extractedImagesList = imgs
+                                        isExtractingImages = false
+                                    },
+                                    extractVideosTrigger = extractVideosTrigger,
+                                    onVideosDetected = { vids ->
+                                        detectedVideosList = vids
+                                        isDetectingVideos = false
+                                    },
+                                    viewSourceTrigger = viewSourceTrigger,
+                                    onSourceExtracted = { src ->
+                                        pageSourceHtml = src
+                                        showSourceViewer = true
+                                    }
                                 )
                             }
                         }
@@ -427,6 +496,87 @@ fun MainScreen(viewModel: BrowserViewModel) {
                 DownloadsDialog(
                     downloads = downloads,
                     onDismiss = { showDownloads = false }
+                )
+            }
+
+            // 1. Escanear Segurança do Site Dialog
+            if (showSiteSecurityScan) {
+                SiteSecurityScanDialog(
+                    tab = activeTab,
+                    securityClient = viewModel.securityClient,
+                    onDismiss = { showSiteSecurityScan = false }
+                )
+            }
+
+            // 2. Detectar e Baixar Vídeos Dialog
+            if (showMediaDetector) {
+                MediaDetectorDialog(
+                    detectedVideos = detectedVideosList,
+                    isScanning = isDetectingVideos,
+                    onDownloadVideo = { url, mime, title ->
+                        viewModel.downloadManager.enqueueDownload(url, "OpenV Browser", title, mime)
+                    },
+                    onDismiss = { showMediaDetector = false }
+                )
+            }
+
+            // 3. Extrair Imagens do Site Dialog
+            if (showImageExtractor) {
+                ImageExtractorDialog(
+                    images = extractedImagesList,
+                    isLoading = isExtractingImages,
+                    onDownloadImages = { toDownload ->
+                        toDownload.forEach { img ->
+                            val filename = img.alt.ifBlank { "imagem_${System.currentTimeMillis()}" }
+                            viewModel.downloadManager.enqueueDownload(img.url, "OpenV Browser", filename, img.mimeType)
+                        }
+                    },
+                    onOpenInNewTab = { imgUrl ->
+                        viewModel.openNewTab(imgUrl)
+                    },
+                    onDismiss = { showImageExtractor = false }
+                )
+            }
+
+            // 4. Limpar Cookies Dialog
+            if (showClearCookies) {
+                ClearCookiesDialog(
+                    onClearComplete = {
+                        activeTab?.url?.let { if (!it.startsWith("openv://")) viewModel.navigateTo(it) }
+                    },
+                    onDismiss = { showClearCookies = false }
+                )
+            }
+
+            // 5. Extensões e Ferramentas Dialog
+            if (showExtensions) {
+                ExtensionsDialog(
+                    pageTitle = activeTab?.title ?: "OpenV",
+                    pageUrl = activeTab?.url ?: "",
+                    isDarkModeActive = isWebDarkMode,
+                    isReaderModeActive = isReaderMode,
+                    onToggleDarkMode = { active -> isWebDarkMode = active },
+                    onToggleReaderMode = { active -> isReaderMode = active },
+                    onExecuteUserScript = { script -> scriptToExecute = script },
+                    onViewSource = {
+                        viewSourceTrigger = System.currentTimeMillis()
+                    },
+                    onDismiss = { showExtensions = false }
+                )
+            }
+
+            // 6. Permissões do Android Dialog
+            if (showPermissions) {
+                AndroidPermissionsDialog(
+                    onDismiss = { showPermissions = false }
+                )
+            }
+
+            // 7. Visualizador de Código-Fonte HTML Dialog
+            if (showSourceViewer) {
+                SourceViewerDialog(
+                    htmlSource = pageSourceHtml,
+                    onDismiss = { showSourceViewer = false }
                 )
             }
         }

@@ -187,18 +187,18 @@ class VpnManager(
             putExtra(OpenVVpnService.EXTRA_SERVER_PORT, target.serverPort)
             putExtra(OpenVVpnService.EXTRA_DNS, target.dnsServer)
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
+        try {
             context.startService(intent)
-        }
+        } catch (_: Exception) {}
     }
 
     fun stopVpn() {
         val intent = Intent(context, OpenVVpnService::class.java).apply {
             action = OpenVVpnService.ACTION_DISCONNECT
         }
-        context.startService(intent)
+        try {
+            context.startService(intent)
+        } catch (_: Exception) {}
     }
 
     fun refreshPublicIp() {

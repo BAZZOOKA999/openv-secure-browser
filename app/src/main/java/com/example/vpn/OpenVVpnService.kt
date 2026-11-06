@@ -21,9 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.net.InetSocketAddress
-import java.nio.channels.DatagramChannel
+import java.io.IOException
 
 class OpenVVpnService : VpnService() {
 
@@ -47,7 +45,9 @@ class OpenVVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        try {
+            createNotificationChannel()
+        } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -72,18 +72,36 @@ class OpenVVpnService : VpnService() {
 
     private fun connectTunnel(serverHost: String, serverPort: Int, dnsServer: String) {
         _vpnStatus.value = VpnConnectionState.CONNECTING
-        startForeground(1001, buildNotification("Conectando ao túnel OpenV..."))
+        showSafeNotification("Conectando ao túnel OpenV...")
 
         tunnelJob?.cancel()
         tunnelJob = serviceScope.launch {
             try {
+                // Ensure valid IPv4 DNS address to prevent IllegalArgumentException
+                val validDns = if (dnsServer.isNotBlank() && dnsServer.matches(Regex("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"))) {
+                    dnsServer
+                } else {
+                    "1.1.1.1"
+                }
+
                 // Build the native TUN interface using Android VpnService.Builder
                 val builder = Builder()
                     .setSession("OpenV Secure Tunnel")
-                    .setMtu(1500)
+                    .setMtu(1420)
                     .addAddress("10.8.0.2", 24)
-                    .addDnsServer(dnsServer)
-                    .addRoute("0.0.0.0", 0)
+
+                try {
+                    builder.addDnsServer(validDns)
+                } catch (_: Exception) {}
+
+                try {
+                    builder.addRoute("0.0.0.0", 0)
+                } catch (_: Exception) {}
+
+                // Exclude OpenV itself so health check and direct app traffic is never blocked
+                try {
+                    builder.addDisallowedApplication(packageName)
+                } catch (_: Exception) {}
 
                 // Optional IPv6 route
                 try {
@@ -102,17 +120,24 @@ class OpenVVpnService : VpnService() {
                 _vpnStatus.value = VpnConnectionState.CONNECTED
                 _connectedServer.value = serverHost
 
-                updateNotification("Túnel ativo: $serverHost ($serverPort)")
+                showSafeNotification("Túnel ativo: $serverHost ($serverPort)")
 
-                // Read/Write loop on TUN descriptor to maintain interface lifecycle
-                val inStream = FileInputStream(pfd.fileDescriptor)
-                val buffer = ByteArray(32767)
-                while (_vpnStatus.value == VpnConnectionState.CONNECTED) {
-                    val length = inStream.read(buffer)
-                    if (length <= 0) {
-                        Thread.sleep(100)
+                // Maintain TUN descriptor lifecycle safely
+                try {
+                    val inStream = FileInputStream(pfd.fileDescriptor)
+                    val buffer = ByteArray(32767)
+                    while (_vpnStatus.value == VpnConnectionState.CONNECTED) {
+                        try {
+                            val length = inStream.read(buffer)
+                            if (length <= 0) {
+                                Thread.sleep(100)
+                            }
+                        } catch (ioe: IOException) {
+                            // Descriptor closed or interrupted on disconnect
+                            break
+                        }
                     }
-                }
+                } catch (_: Exception) {}
             } catch (e: Exception) {
                 _vpnStatus.value = VpnConnectionState.ERROR
                 disconnectTunnel()
@@ -129,7 +154,11 @@ class OpenVVpnService : VpnService() {
             vpnInterface = null
         } catch (_: Exception) {}
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.cancel(1001)
+        } catch (_: Exception) {}
+
         stopSelf()
     }
 
@@ -146,32 +175,38 @@ class OpenVVpnService : VpnService() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Notificação de status da conexão VPN nativa"
+                setShowBadge(false)
             }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.createNotificationChannel(channel)
         }
     }
 
-    private fun buildNotification(text: String): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+    private fun showSafeNotification(text: String) {
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
 
-        return NotificationCompat.Builder(this, "openv_vpn_channel")
-            .setContentTitle("OpenV Secure VPN")
-            .setContentText(text)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .build()
-    }
+            val notification = NotificationCompat.Builder(this, "openv_vpn_channel")
+                .setContentTitle("OpenV Secure VPN")
+                .setContentText(text)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
 
-    private fun updateNotification(text: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(1001, buildNotification(text))
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.notify(1001, notification)
+        } catch (_: Exception) {
+            // Ignore notification failure gracefully (e.g. if POST_NOTIFICATIONS was not granted)
+        }
     }
 }

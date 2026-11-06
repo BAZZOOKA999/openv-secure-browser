@@ -53,6 +53,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view apk-latest || gh release create apk-latest --title 'OpenV 0.2-alpha — Android APK' --notes-file RELEASE_NOTES.md
-          gh release edit apk-latest --title 'OpenV 0.2-alpha — Android APK' --notes-file RELEASE_NOTES.md --target "$GITHUB_SHA"
+          gh release view apk-latest || gh release create apk-latest --title 'OpenV 0.3-alpha — Android APK' --notes-file RELEASE_NOTES.md
+          gh release edit apk-latest --title 'OpenV 0.3-alpha — Android APK' --notes-file RELEASE_NOTES.md --target "$GITHUB_SHA"
           gh release upload apk-latest dist/OpenV.apk dist/SHA256SUMS --clobber

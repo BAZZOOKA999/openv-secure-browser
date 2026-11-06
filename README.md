@@ -8,7 +8,18 @@ Navegador Android em Kotlin e Jetpack Compose, com abas, favoritos, histórico l
 
 **[Baixar OpenV.apk](https://github.com/BAZZOOKA999/openv-secure-browser/releases/download/apk-latest/OpenV.apk)**
 
-Requer **Android 10 ou superior** e Android System WebView atualizado. Abra o APK e autorize a instalação pela origem escolhida quando solicitado pelo Android. A versão atual é **0.2-alpha**.
+Requer **Android 10 ou superior** e Android System WebView atualizado. Abra o APK e autorize a instalação pela origem escolhida quando solicitado pelo Android. A versão atual é **0.3-alpha**.
+
+## Novidades da versão 0.3-alpha
+
+Importada de `openv-secure-browser - 2026-11-06T201444.526.zip`.
+
+- Menu ampliado com visualização do HTML atual, extração de imagens e detecção de links de mídia presentes na página.
+- Modo leitura, modo escuro de páginas, controle do bloqueio de rastreadores e execução manual de JavaScript na página.
+- Telas para limpeza de cookies, permissões Android e análise indicativa de URL/cabeçalhos.
+- Mantém a migração dos dados, as correções de navegação e a assinatura das versões anteriores; `versionCode=3`.
+
+A análise de site é heurística, não antivírus nem garantia de legitimidade. A detecção de mídia não baixa streams protegidos, DRM ou URLs blob/data. As ferramentas chamadas de extensões são recursos internos, não compatibilidade com extensões de Chrome/Firefox. Conceder permissões ao aplicativo não libera automaticamente câmera, microfone ou localização para sites; o WebView ainda nega esses pedidos. O motor VPN continua indisponível, pois ainda não encaminha nem criptografa os pacotes capturados.
 
 ## Novidades da versão 0.2-alpha
 

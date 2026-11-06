@@ -38,10 +38,14 @@ object TrackerBlocker {
 
     private val blockedCounter = AtomicInteger(0)
 
+    @Volatile
+    var isEnabled: Boolean = true
+
     val blockedCount: Int
         get() = blockedCounter.get()
 
     fun shouldBlockUrl(url: String): Boolean {
+        if (!isEnabled) return false
         val lower = url.lowercase()
         for (domain in blockedTrackerDomains) {
             if (lower.contains("://$domain") || lower.contains(".$domain")) {

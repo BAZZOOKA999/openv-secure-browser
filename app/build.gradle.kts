@@ -13,8 +13,8 @@ android {
     applicationId = "com.openv.securebrowser"
     minSdk = 29
     targetSdk = 36
-    versionCode = 2
-    versionName = "0.2-alpha"
+    versionCode = 3
+    versionName = "0.3-alpha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -94,7 +94,7 @@ dependencies {
   implementation(libs.androidx.webkit)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // implementation(libs.coil.compose)
+  implementation(libs.coil.compose)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 

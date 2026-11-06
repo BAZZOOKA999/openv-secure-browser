@@ -1,6 +1,8 @@
 package com.example.ui.vpndns
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -94,13 +96,22 @@ import com.example.ui.theme.OpenVTextPrimary
 import com.example.ui.theme.OpenVTextSecondary
 import com.example.ui.theme.OpenVWarningOrange
 
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
 @Composable
 fun VpnDnsScreen(
     viewModel: BrowserViewModel,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = remember(context) { context.findActivity() }
     val scrollState = rememberScrollState()
 
     val vpnState by viewModel.vpnManager.connectionState.collectAsState()
@@ -297,13 +308,20 @@ fun VpnDnsScreen(
                         Button(
                             enabled = com.example.vpn.VpnManager.ENGINE_AVAILABLE,
                             onClick = {
-                                if (activity != null && com.example.vpn.VpnManager.ENGINE_AVAILABLE) {
-                                    val intent = viewModel.vpnManager.checkVpnPermission(activity)
-                                    if (intent != null) {
-                                        vpnPermissionLauncher.launch(intent)
+                                try {
+                                    val act = activity ?: context.findActivity()
+                                    if (act != null) {
+                                        val intent = viewModel.vpnManager.checkVpnPermission(act)
+                                        if (intent != null) {
+                                            vpnPermissionLauncher.launch(intent)
+                                        } else {
+                                            viewModel.vpnManager.startVpn(activeProfile)
+                                        }
                                     } else {
                                         viewModel.vpnManager.startVpn(activeProfile)
                                     }
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Erro ao iniciar VPN: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),

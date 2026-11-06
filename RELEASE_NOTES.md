@@ -1,11 +1,11 @@
-OpenV 0.2-alpha — atualização para Android 10 ou superior.
+OpenV 0.3-alpha — Android 10 ou superior.
 
-Baixe **OpenV.apk** e instale por cima da versão anterior. O pacote mantém o identificador e a chave de assinatura, com versionCode 2.
+Atualização do ZIP de 06/11/2026 às 20h14. Baixe **OpenV.apk** e instale por cima da versão anterior: mesmo identificador, mesma assinatura e versionCode 3.
 
-Novidades: downloads, busca na página, zoom, bloqueio de rastreadores por lista, consultas DNS/HTTP/IP/RDAP, ferramentas EXIF, relatórios OSINT e perfis salvos.
+Novidades: menu ampliado, visualização do HTML, extração de imagens, detecção de mídia da página, modo leitura/escuro, controle de rastreadores, execução manual de scripts, limpeza de cookies, tela de permissões e análise indicativa de URL/cabeçalhos.
 
-Foi adicionada migração do banco para preservar favoritos e histórico, verificada em teste automatizado. As correções anteriores de abas, botão Voltar e Safe Browsing foram preservadas.
+Preservadas as correções de abas/Voltar/Safe Browsing e a migração que mantém favoritos e histórico.
 
-**VPN, troca de IP e kill switch continuam indisponíveis.** O serviço recebido não encaminhava os pacotes e foi desabilitado para não interromper a rede. As consultas DoH são independentes e não alteram o DNS do WebView. Abas privadas ainda compartilham cookies com as demais abas.
+Limitações: análise heurística não garante segurança do site; detecção de mídia não suporta DRM/streams blob. Recursos internos não equivalem a extensões de outros navegadores. Permissões Android não liberam automaticamente o acesso dos sites. VPN integrada, rotação de IP e kill switch continuam indisponíveis; DoH não altera o DNS do WebView. Abas privadas compartilham cookies.
 
-APK compilado e testado no GitHub Actions. Testes em aparelho e compatibilidade com sites ainda precisam de validação.
+Compilação e testes automatizados no GitHub Actions; uso em aparelho ainda precisa de validação.
