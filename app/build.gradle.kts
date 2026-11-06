@@ -13,8 +13,8 @@ android {
     applicationId = "com.openv.securebrowser"
     minSdk = 29
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.1-alpha"
+    versionCode = 2
+    versionName = "0.2-alpha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -89,6 +89,8 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.androidx.navigation.compose)
+  implementation(libs.okhttp)
+  implementation(libs.androidx.exifinterface)
   implementation(libs.androidx.webkit)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)

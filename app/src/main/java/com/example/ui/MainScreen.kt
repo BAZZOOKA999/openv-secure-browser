@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,11 +54,11 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.browser.AddressBar
 import com.example.ui.browser.BookmarksAndHistoryDialog
 import com.example.ui.browser.BrowserViewModel
+import com.example.ui.browser.DownloadsDialog
 import com.example.ui.browser.OpenVHomeScreen
 import com.example.ui.browser.OpenVWebView
 import com.example.ui.browser.TabSwitcherDialog
 import com.example.ui.osint.OsintScreen
-import com.example.ui.protection.ProtectionScreen
 import com.example.ui.search.SearchScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.OpenVAlertRed
@@ -68,11 +70,12 @@ import com.example.ui.theme.OpenVSurface
 import com.example.ui.theme.OpenVSurfaceVariant
 import com.example.ui.theme.OpenVTextPrimary
 import com.example.ui.theme.OpenVTextSecondary
+import com.example.ui.vpndns.VpnDnsScreen
 
 sealed class NavSection(val title: String, val icon: ImageVector, val tag: String) {
     object Browser : NavSection("Navegador", Icons.Default.Language, "nav_browser_tab")
     object Search : NavSection("Pesquisa", Icons.Default.Search, "nav_search_tab")
-    object Shield : NavSection("Proteção", Icons.Default.Shield, "nav_shield_tab")
+    object VpnDns : NavSection("VPN & DNS", Icons.Default.VpnKey, "nav_vpndns_tab")
     object Osint : NavSection("OSINT", Icons.Default.TravelExplore, "nav_osint_tab")
     object Settings : NavSection("Configurações", Icons.Default.Settings, "nav_settings_tab")
 }
@@ -90,31 +93,32 @@ fun MainScreen(viewModel: BrowserViewModel) {
     val desktopModeDefault by viewModel.desktopModeDefault.collectAsState()
     val darkThemeEnabled by viewModel.darkThemeEnabled.collectAsState()
 
-    val vpnState by viewModel.vpnState.collectAsState()
-    val dnsConfig by viewModel.dnsConfiguration.collectAsState()
     val bookmarks by viewModel.bookmarks.collectAsState()
     val history by viewModel.history.collectAsState()
-    val diagnosticState by viewModel.diagnosticState.collectAsState()
+    val downloads by viewModel.downloads.collectAsState()
     val loadUrlEvent by viewModel.loadUrlEvent.collectAsState()
+    val findQuery by viewModel.findInPageQuery.collectAsState()
+    val zoomAction by viewModel.zoomAction.collectAsState()
+    val isNavigationBlocked by viewModel.vpnManager.isNavigationBlocked.collectAsState()
 
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBookmarksAndHistory by remember { mutableStateOf(false) }
+    var showDownloads by remember { mutableStateOf(false) }
 
     val isCurrentUrlBookmarked = remember(activeTab?.url, bookmarks) {
         val currentUrl = activeTab?.url ?: ""
         bookmarks.any { it.url == currentUrl }
     }
 
-    // Handle Android system back gesture / button
-    BackHandler(enabled = showTabSwitcher || showBookmarksAndHistory || currentSectionIndex != 0 || (activeTab != null && activeTab?.url != "openv://home")) {
+    // Android system back button & gesture handling
+    BackHandler(enabled = showDownloads || showTabSwitcher || showBookmarksAndHistory || currentSectionIndex != 0 || (activeTab != null && activeTab?.url != "openv://home")) {
         when {
             showTabSwitcher -> showTabSwitcher = false
             showBookmarksAndHistory -> showBookmarksAndHistory = false
+            showDownloads -> showDownloads = false
             currentSectionIndex != 0 -> currentSectionIndex = 0
             activeTab?.canGoBack == true -> {
-                // Let webview handle back or navigate back
                 viewModel.tabManager.updateActiveTab { it.copy(canGoBack = false) }
-                // In actual webview back, handled internally or triggers goHome
                 if (activeTab?.url != "openv://home") {
                     viewModel.goHome()
                 }
@@ -135,7 +139,7 @@ fun MainScreen(viewModel: BrowserViewModel) {
                 val items = listOf(
                     NavSection.Browser,
                     NavSection.Search,
-                    NavSection.Shield,
+                    NavSection.VpnDns,
                     NavSection.Osint,
                     NavSection.Settings
                 )
@@ -160,8 +164,8 @@ fun MainScreen(viewModel: BrowserViewModel) {
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = if (section == NavSection.Shield) OpenVShieldGreen else OpenVBlue,
-                            selectedTextColor = if (section == NavSection.Shield) OpenVShieldGreen else OpenVBlue,
+                            selectedIconColor = if (section == NavSection.VpnDns) OpenVShieldGreen else OpenVBlue,
+                            selectedTextColor = if (section == NavSection.VpnDns) OpenVShieldGreen else OpenVBlue,
                             unselectedIconColor = OpenVTextSecondary,
                             unselectedTextColor = OpenVTextSecondary,
                             indicatorColor = OpenVSurfaceVariant
@@ -180,7 +184,7 @@ fun MainScreen(viewModel: BrowserViewModel) {
         ) {
             when (currentSectionIndex) {
                 0 -> {
-                    // Navegador Tab
+                    // Browser View
                     Column(modifier = Modifier.fillMaxSize()) {
                         AddressBar(
                             tab = activeTab,
@@ -195,6 +199,7 @@ fun MainScreen(viewModel: BrowserViewModel) {
                             onHome = { viewModel.goHome() },
                             onOpenTabSwitcher = { showTabSwitcher = true },
                             onOpenBookmarksAndHistory = { showBookmarksAndHistory = true },
+                            onOpenDownloads = { showDownloads = true },
                             onToggleBookmark = {
                                 activeTab?.let {
                                     viewModel.toggleBookmark(it.title, it.url)
@@ -208,25 +213,16 @@ fun MainScreen(viewModel: BrowserViewModel) {
                             },
                             onClearData = {
                                 viewModel.clearBrowsingData(context)
-                            }
+                            },
+                            onFindInPage = { q ->
+                                viewModel.setFindInPageQuery(q)
+                            },
+                            onZoomIn = { viewModel.triggerZoomIn() },
+                            onZoomOut = { viewModel.triggerZoomOut() }
                         )
 
-                        // Main Content: Home Screen or Live WebView or Error Screen
-                        val currentTab = activeTab
-                        if (currentTab == null || currentTab.url == "openv://home" || currentTab.url == "about:blank") {
-                            OpenVHomeScreen(
-                                searchEngine = searchEngine,
-                                bookmarks = bookmarks,
-                                isPrivateTab = currentTab?.isPrivate == true,
-                                onNavigate = { urlOrQuery ->
-                                    viewModel.navigateTo(urlOrQuery)
-                                },
-                                onSelectEngine = { engine ->
-                                    viewModel.setSearchEngine(engine)
-                                }
-                            )
-                        } else if (currentTab.errorMessage != null) {
-                            // Error State Card
+                        // Kill switch navigation lock check
+                        if (isNavigationBlocked) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -244,128 +240,133 @@ fun MainScreen(viewModel: BrowserViewModel) {
                                         modifier = Modifier.padding(20.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Warning,
-                                            contentDescription = null,
-                                            tint = OpenVAlertRed,
-                                            modifier = Modifier.size(44.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = "Erro no Carregamento",
-                                            color = OpenVTextPrimary,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        Icon(Icons.Default.Lock, contentDescription = null, tint = OpenVAlertRed, modifier = Modifier.size(44.dp))
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text("Navegação Bloqueada por Segurança", color = OpenVTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = currentTab.errorMessage ?: "Não foi possível carregar a página solicitada.",
+                                            "O Kill Switch de Proteção Estrita está ativado enquanto a rotação ou reconexão da VPN é verificada.",
                                             color = OpenVTextSecondary,
-                                            fontSize = 13.sp
+                                            fontSize = 12.sp
                                         )
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    viewModel.navigateTo(currentTab.url)
-                                                },
-                                                modifier = Modifier.weight(1f),
-                                                colors = ButtonDefaults.buttonColors(containerColor = OpenVBlue),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Tentar Novamente", fontSize = 12.sp)
-                                            }
-                                            Button(
-                                                onClick = { viewModel.goHome() },
-                                                modifier = Modifier.weight(1f),
-                                                colors = ButtonDefaults.buttonColors(containerColor = OpenVSurfaceVariant),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Text("Página Inicial", color = OpenVTextPrimary, fontSize = 12.sp)
-                                            }
-                                        }
                                     }
                                 }
                             }
                         } else {
-                            // Live Android WebView
-                            OpenVWebView(
-                                tab = currentTab,
-                                blockThirdPartyCookies = blockThirdPartyCookies,
-                                safeBrowsingEnabled = safeBrowsingEnabled,
-                                onTitleChanged = { title ->
-                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(title = title) }
-                                },
-                                onProgressChanged = { progress ->
-                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(progress = progress) }
-                                },
-                                onLoadingStateChanged = { loading ->
-                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(isLoading = loading) }
-                                },
-                                onNavigationStateChanged = { canBack, canForward ->
-                                    viewModel.tabManager.updateTab(currentTab.id) {
-                                        it.copy(canGoBack = canBack, canGoForward = canForward)
+                            val currentTab = activeTab
+                            if (currentTab == null || currentTab.url == "openv://home" || currentTab.url == "about:blank") {
+                                OpenVHomeScreen(
+                                    searchEngine = searchEngine,
+                                    bookmarks = bookmarks,
+                                    isPrivateTab = currentTab?.isPrivate == true,
+                                    onNavigate = { urlOrQuery ->
+                                        viewModel.navigateTo(urlOrQuery)
+                                    },
+                                    onSelectEngine = { engine ->
+                                        viewModel.setSearchEngine(engine)
                                     }
-                                },
-                                onUrlChanged = { newUrl ->
-                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(url = newUrl) }
-                                    viewModel.recordVisit(currentTab.title, newUrl, currentTab.isPrivate)
-                                },
-                                onSslStatusChanged = { isSsl ->
-                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(sslCertificateValid = isSsl) }
-                                },
-                                onErrorOccurred = { errorMsg ->
-                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(errorMessage = errorMsg, isLoading = false) }
-                                },
-                                onSaveState = { bundle ->
-                                    viewModel.tabManager.saveTabState(currentTab.id, bundle)
-                                },
-                                savedState = viewModel.tabManager.getTabSavedState(currentTab.id),
-                                externalLoadUrl = loadUrlEvent,
-                                onExternalUrlConsumed = {
-                                    viewModel.clearLoadUrlEvent()
+                                )
+                            } else if (currentTab.errorMessage != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(OpenVBackground)
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = OpenVSurface),
+                                        shape = RoundedCornerShape(14.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, OpenVAlertRed)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(20.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(Icons.Default.Warning, contentDescription = null, tint = OpenVAlertRed, modifier = Modifier.size(44.dp))
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text("Erro no Carregamento", color = OpenVTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(currentTab.errorMessage ?: "Não foi possível carregar a página.", color = OpenVTextSecondary, fontSize = 13.sp)
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Button(
+                                                    onClick = { viewModel.navigateTo(currentTab.url) },
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = OpenVBlue),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Tentar Novamente", fontSize = 12.sp)
+                                                }
+                                                Button(
+                                                    onClick = { viewModel.goHome() },
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = OpenVSurfaceVariant),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Página Inicial", color = OpenVTextPrimary, fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            )
+                            } else {
+                                OpenVWebView(
+                                    tab = currentTab,
+                                    blockThirdPartyCookies = blockThirdPartyCookies,
+                                    safeBrowsingEnabled = safeBrowsingEnabled,
+                                    onTitleChanged = { title -> viewModel.tabManager.updateTab(currentTab.id) { it.copy(title = title) } },
+                                    onProgressChanged = { progress -> viewModel.tabManager.updateTab(currentTab.id) { it.copy(progress = progress) } },
+                                    onLoadingStateChanged = { loading -> viewModel.tabManager.updateTab(currentTab.id) { it.copy(isLoading = loading) } },
+                                    onNavigationStateChanged = { canBack, canForward ->
+                                        viewModel.tabManager.updateTab(currentTab.id) { it.copy(canGoBack = canBack, canGoForward = canForward) }
+                                    },
+                                    onUrlChanged = { newUrl ->
+                                        viewModel.tabManager.updateTab(currentTab.id) { it.copy(url = newUrl) }
+                                        viewModel.recordVisit(currentTab.title, newUrl, currentTab.isPrivate)
+                                    },
+                                    onSslStatusChanged = { isSsl -> viewModel.tabManager.updateTab(currentTab.id) { it.copy(sslCertificateValid = isSsl) } },
+                                    onErrorOccurred = { errorMsg -> viewModel.tabManager.updateTab(currentTab.id) { it.copy(errorMessage = errorMsg, isLoading = false) } },
+                                    onSaveState = { bundle -> viewModel.tabManager.saveTabState(currentTab.id, bundle) },
+                                    onDownloadRequested = { url, userAgent, contentDisp, mime ->
+                                        viewModel.downloadManager.enqueueDownload(url, userAgent, contentDisp, mime)
+                                    },
+                                    savedState = viewModel.tabManager.getTabSavedState(currentTab.id),
+                                    externalLoadUrl = loadUrlEvent,
+                                    onExternalUrlConsumed = { viewModel.clearLoadUrlEvent() },
+                                    findQuery = findQuery,
+                                    zoomAction = zoomAction
+                                )
+                            }
                         }
                     }
                 }
 
                 1 -> {
-                    // Pesquisa Tab
+                    // Global Search Screen
                     SearchScreen(
                         searchEngine = searchEngine,
                         history = history,
                         onSelectEngine = { engine -> viewModel.setSearchEngine(engine) },
-                        onExecuteSearch = { query ->
+                        onExecuteSearch = { query, category ->
                             currentSectionIndex = 0
-                            viewModel.navigateTo(query)
+                            viewModel.navigateTo(query, category)
                         }
                     )
                 }
 
                 2 -> {
-                    // Proteção Tab
-                    ProtectionScreen(
-                        vpnState = vpnState,
-                        dnsConfig = dnsConfig,
-                        safeBrowsingEnabled = safeBrowsingEnabled,
-                        blockThirdPartyCookies = blockThirdPartyCookies,
-                        diagnosticState = diagnosticState,
-                        onToggleSafeBrowsing = { viewModel.setSafeBrowsing(it) },
-                        onToggleBlockThirdPartyCookies = { viewModel.setBlockThirdPartyCookies(it) },
-                        onRunDiagnostics = { viewModel.runConnectivityDiagnostics() },
-                        onClearBrowsingData = { viewModel.clearBrowsingData(context) }
-                    )
+                    // VPN & DNS Screen
+                    VpnDnsScreen(viewModel = viewModel)
                 }
 
                 3 -> {
-                    // OSINT Tab
+                    // Complete OSINT Screen
                     OsintScreen(
+                        viewModel = viewModel,
                         onLaunchQueryInBrowser = { url ->
                             currentSectionIndex = 0
                             viewModel.navigateTo(url)
@@ -374,10 +375,10 @@ fun MainScreen(viewModel: BrowserViewModel) {
                 }
 
                 4 -> {
-                    // Configurações Tab
+                    // Settings Screen
                     SettingsScreen(
                         currentSearchEngine = searchEngine,
-                        dnsConfig = dnsConfig,
+                        dnsConfig = viewModel.dnsConfiguration.collectAsState().value,
                         safeBrowsingEnabled = safeBrowsingEnabled,
                         blockThirdPartyCookies = blockThirdPartyCookies,
                         desktopModeDefault = desktopModeDefault,
@@ -387,7 +388,7 @@ fun MainScreen(viewModel: BrowserViewModel) {
                         onSetCustomDnsUrl = { viewModel.setCustomDnsUrl(it) },
                         onToggleSafeBrowsing = { viewModel.setSafeBrowsing(it) },
                         onToggleBlockThirdPartyCookies = { viewModel.setBlockThirdPartyCookies(it) },
-                        onToggleDesktopMode = { viewModel.toggleDesktopMode() },
+                        onToggleDesktopMode = { viewModel.setDesktopMode(it) },
                         onToggleDarkTheme = { viewModel.setDarkTheme(it) },
                         onClearAllData = { viewModel.clearBrowsingData(context) }
                     )
@@ -419,6 +420,13 @@ fun MainScreen(viewModel: BrowserViewModel) {
                     onDeleteBookmark = { bookmark -> viewModel.deleteBookmark(bookmark) },
                     onClearHistory = { viewModel.clearAllHistory() },
                     onDismiss = { showBookmarksAndHistory = false }
+                )
+            }
+
+            if (showDownloads) {
+                DownloadsDialog(
+                    downloads = downloads,
+                    onDismiss = { showDownloads = false }
                 )
             }
         }

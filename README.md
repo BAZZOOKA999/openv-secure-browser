@@ -8,7 +8,18 @@ Navegador Android em Kotlin e Jetpack Compose, com abas, favoritos, histórico l
 
 **[Baixar OpenV.apk](https://github.com/BAZZOOKA999/openv-secure-browser/releases/download/apk-latest/OpenV.apk)**
 
-Requer **Android 10 ou superior** e Android System WebView atualizado. Abra o APK e autorize a instalação pela origem escolhida quando solicitado pelo Android. A versão atual é **0.1-alpha**.
+Requer **Android 10 ou superior** e Android System WebView atualizado. Abra o APK e autorize a instalação pela origem escolhida quando solicitado pelo Android. A versão atual é **0.2-alpha**.
+
+## Novidades da versão 0.2-alpha
+
+Atualização importada do arquivo `openv-secure-browser - 2026-11-06T192938.787.zip`.
+
+- Downloads pelo gerenciador do Android e lista dos downloads iniciados na sessão.
+- Busca dentro da página, zoom e bloqueio de uma lista local de rastreadores.
+- Consultas DNS-over-HTTPS, inspeção de cabeçalhos HTTP, consultas de IP/RDAP e ferramentas OSINT ampliadas.
+- Leitura de EXIF e criação de cópias JPEG sem metadados; relatórios OSINT e perfis salvos localmente.
+- Atualização do banco de dados sem apagar favoritos e histórico, com teste de migração.
+- Mesma chave de assinatura da versão anterior, `versionCode=2`, permitindo instalar por cima do APK publicado anteriormente.
 
 ## Recursos
 
@@ -22,11 +33,11 @@ Requer **Android 10 ou superior** e Android System WebView atualizado. Abra o AP
 
 ## O que ainda não está pronto
 
-**VPN, mudança de IP e kill switch não estão implementados.** Os perfis incluídos são exemplos sem servidores operacionais. A seleção de DNS é salva, mas não altera as consultas de rede ou do WebView.
+**VPN, mudança de IP e kill switch não estão implementados.** Os perfis incluídos são exemplos, sem operação verificada. O serviço VPN recebido apenas consumia pacotes da interface TUN, sem encaminhamento ou criptografia; sua ativação foi desabilitada para evitar cortar a conexão e indicar proteção inexistente. As ferramentas DoH fazem consultas próprias, mas a seleção de DNS não altera o tráfego do WebView ou do sistema. Provedores DoH precisam aceitar o formato JSON usado pelo cliente.
 
 As abas privadas evitam o registro no histórico do aplicativo, mas **compartilham cookies com as outras abas**. Não equivalem a uma sessão com isolamento completo nem garantem anonimato. A troca de identificador interno de sessão não troca o IP.
 
-Esta versão não possui integração própria para downloads, envio de arquivos, câmera/microfone, geolocalização ou vídeo em tela cheia. HTTP sem criptografia é bloqueado. Há limitações de compatibilidade com sites que exigem recursos de navegadores completos. A disponibilidade de Safe Browsing depende do provedor WebView.
+Os downloads usam o gerenciador do Android; a lista interna é apenas da sessão e não acompanha o progresso. Downloads que dependem de login podem falhar. Esta versão não possui integração própria para envio de arquivos, câmera/microfone, geolocalização ou vídeo em tela cheia. HTTP sem criptografia é bloqueado. Há limitações de compatibilidade com sites que exigem recursos de navegadores completos. A disponibilidade de Safe Browsing depende do provedor WebView.
 
 ## Compilar e verificar
 
@@ -36,4 +47,6 @@ Para uma compilação local de desenvolvimento, execute `gradle assembleDebug te
 
 Não é necessário configurar Gemini ou Firebase: o código atual não usa esses serviços e as dependências desnecessárias foram removidas da compilação.
 
-Os testes existentes verificam nome do aplicativo, criação de abas e construção de pesquisas. Consulte os relatórios do Actions. Testes automatizados não substituem validação de instalação e uso em aparelho; o projeto não oferece garantia de segurança absoluta.
+Os testes verificam nome do aplicativo, criação de abas, construção de pesquisas e preservação de favoritos/histórico na migração do banco. Consulte os relatórios do Actions. Testes automatizados não substituem validação de instalação e uso em aparelho; o projeto não oferece garantia de segurança absoluta.
+
+As consultas de rede podem transmitir o alvo pesquisado a serviços externos (por exemplo, provedores DoH, IP/RDAP e sites de perfis). Respostas de perfis por status HTTP não comprovam identidade ou existência de conta. Não é uma auditoria completa de segurança.

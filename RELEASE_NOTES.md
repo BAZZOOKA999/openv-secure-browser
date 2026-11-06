@@ -1,9 +1,11 @@
-Navegador Android OpenV, versão inicial 0.1-alpha. Android 10 ou superior.
+OpenV 0.2-alpha — atualização para Android 10 ou superior.
 
-Baixe **OpenV.apk**, abra o arquivo e permita a instalação pelo aplicativo utilizado quando o Android solicitar.
+Baixe **OpenV.apk** e instale por cima da versão anterior. O pacote mantém o identificador e a chave de assinatura, com versionCode 2.
 
-Inclui navegação WebView, abas, favoritos, histórico, pesquisa com diferentes provedores, atalhos OSINT e configurações de privacidade.
+Novidades: downloads, busca na página, zoom, bloqueio de rastreadores por lista, consultas DNS/HTTP/IP/RDAP, ferramentas EXIF, relatórios OSINT e perfis salvos.
 
-**Limitações:** VPN, troca de IP, kill switch e DNS personalizado ainda não operam no tráfego. As abas privadas não gravam o histórico do aplicativo, mas compartilham o armazenamento de cookies do WebView; não oferecem isolamento completo. Downloads, envio de arquivos e reprodução em tela cheia não têm integração própria nesta versão. Sites somente HTTP são bloqueados.
+Foi adicionada migração do banco para preservar favoritos e histórico, verificada em teste automatizado. As correções anteriores de abas, botão Voltar e Safe Browsing foram preservadas.
 
-A compilação e os testes automatizados são executados no GitHub Actions. Não substituem testes de instalação e uso em aparelho. Sem garantia de segurança absoluta ou compatibilidade com todos os sites.
+**VPN, troca de IP e kill switch continuam indisponíveis.** O serviço recebido não encaminhava os pacotes e foi desabilitado para não interromper a rede. As consultas DoH são independentes e não alteram o DNS do WebView. Abas privadas ainda compartilham cookies com as demais abas.
+
+APK compilado e testado no GitHub Actions. Testes em aparelho e compatibilidade com sites ainda precisam de validação.

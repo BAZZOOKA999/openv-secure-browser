@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
@@ -36,8 +38,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Tab
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
@@ -45,7 +51,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -72,14 +77,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.TabItem
+import com.example.security.TrackerBlocker
 import com.example.ui.theme.OpenVAlertRed
 import com.example.ui.theme.OpenVBlue
 import com.example.ui.theme.OpenVBorder
 import com.example.ui.theme.OpenVShieldGreen
 import com.example.ui.theme.OpenVSurface
+import com.example.ui.theme.OpenVSurfaceElevated
 import com.example.ui.theme.OpenVSurfaceVariant
 import com.example.ui.theme.OpenVTextPrimary
 import com.example.ui.theme.OpenVTextSecondary
+import java.net.URLEncoder
 
 @Composable
 fun AddressBar(
@@ -91,10 +99,14 @@ fun AddressBar(
     onHome: () -> Unit,
     onOpenTabSwitcher: () -> Unit,
     onOpenBookmarksAndHistory: () -> Unit,
+    onOpenDownloads: () -> Unit,
     onToggleBookmark: () -> Unit,
     onToggleDesktopMode: () -> Unit,
     onOpenNewPrivateTab: () -> Unit,
     onClearData: () -> Unit,
+    onFindInPage: (String?) -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -102,6 +114,9 @@ fun AddressBar(
     val focusRequester = remember { FocusRequester() }
 
     var isEditing by remember { mutableStateOf(false) }
+    var isFindingInPage by remember { mutableStateOf(false) }
+    var findText by remember { mutableStateOf("") }
+
     var inputText by remember(tab?.url) {
         val displayUrl = when {
             tab == null || tab.url == "openv://home" || tab.url == "about:blank" -> ""
@@ -116,6 +131,43 @@ fun AddressBar(
             .fillMaxWidth()
             .background(OpenVSurface)
     ) {
+        // Find in page bar
+        AnimatedVisibility(visible = isFindingInPage) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(OpenVSurfaceElevated)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.FindInPage, contentDescription = null, tint = OpenVBlue, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                OutlinedTextField(
+                    value = findText,
+                    onValueChange = {
+                        findText = it
+                        onFindInPage(it)
+                    },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Localizar no texto da página...", color = OpenVTextSecondary, fontSize = 12.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OpenVTextPrimary,
+                        unfocusedTextColor = OpenVTextPrimary,
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent
+                    )
+                )
+                IconButton(onClick = {
+                    isFindingInPage = false
+                    findText = ""
+                    onFindInPage(null)
+                }) {
+                    Icon(Icons.Default.Close, contentDescription = "Fechar busca na página", tint = OpenVTextSecondary)
+                }
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -152,7 +204,6 @@ fun AddressBar(
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Security Padlock / Shield Icon
                     val isHttps = tab?.url?.startsWith("https://") == true
                     val isHome = tab?.url == "openv://home" || tab?.url == "about:blank"
                     val iconColor = when {
@@ -180,11 +231,7 @@ fun AddressBar(
                                 .focusRequester(focusRequester)
                                 .testTag("address_input_field"),
                             placeholder = {
-                                Text(
-                                    "Buscar ou digitar URL...",
-                                    color = OpenVTextSecondary,
-                                    fontSize = 14.sp
-                                )
+                                Text("Buscar ou digitar URL...", color = OpenVTextSecondary, fontSize = 14.sp)
                             },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(
@@ -227,13 +274,9 @@ fun AddressBar(
                             )
                         }
                     } else {
-                        // Display text when not editing
                         val displayText = when {
                             tab == null || tab.url == "openv://home" || tab.url == "about:blank" -> "Pesquisar ou digitar URL..."
-                            else -> {
-                                val clean = tab.url.removePrefix("https://").removePrefix("http://")
-                                clean
-                            }
+                            else -> tab.url.removePrefix("https://").removePrefix("http://")
                         }
 
                         Text(
@@ -284,19 +327,11 @@ fun AddressBar(
                             containerColor = if (tab?.isPrivate == true) OpenVShieldGreen else OpenVBlue,
                             contentColor = OpenVSurface
                         ) {
-                            Text(
-                                text = "$tabCount",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            )
+                            Text(text = "$tabCount", fontWeight = FontWeight.Bold, fontSize = 10.sp)
                         }
                     }
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Tab,
-                        contentDescription = "Abas abertas",
-                        tint = OpenVTextPrimary
-                    )
+                    Icon(imageVector = Icons.Default.Tab, contentDescription = "Abas abertas", tint = OpenVTextPrimary)
                 }
             }
 
@@ -308,11 +343,7 @@ fun AddressBar(
                         .size(40.dp)
                         .testTag("menu_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Mais opções",
-                        tint = OpenVTextPrimary
-                    )
+                    Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Mais opções", tint = OpenVTextPrimary)
                 }
 
                 DropdownMenu(
@@ -341,15 +372,66 @@ fun AddressBar(
                         }
                     )
 
-                    // Bookmarks and History manager
+                    // Find in Page
+                    DropdownMenuItem(
+                        text = { Text("Localizar na Página", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.FindInPage, contentDescription = null, tint = OpenVTextSecondary) },
+                        onClick = {
+                            menuExpanded = false
+                            isFindingInPage = true
+                        }
+                    )
+
+                    // Zoom In & Zoom Out
+                    DropdownMenuItem(
+                        text = { Text("Aumentar Zoom (+)", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.ZoomIn, contentDescription = null, tint = OpenVTextSecondary) },
+                        onClick = {
+                            menuExpanded = false
+                            onZoomIn()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Diminuir Zoom (-)", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.ZoomOut, contentDescription = null, tint = OpenVTextSecondary) },
+                        onClick = {
+                            menuExpanded = false
+                            onZoomOut()
+                        }
+                    )
+
+                    // Translate Page
+                    DropdownMenuItem(
+                        text = { Text("Traduzir Página (Web)", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Translate, contentDescription = null, tint = OpenVTextSecondary) },
+                        onClick = {
+                            menuExpanded = false
+                            tab?.url?.let {
+                                if (!it.startsWith("openv://")) {
+                                    val translateUrl = "https://translate.google.com/translate?sl=auto&tl=pt&u=" + URLEncoder.encode(it, "UTF-8")
+                                    onNavigate(translateUrl)
+                                }
+                            }
+                        }
+                    )
+
+                    // Bookmarks & History
                     DropdownMenuItem(
                         text = { Text("Favoritos e Histórico", color = OpenVTextPrimary) },
-                        leadingIcon = {
-                            Icon(Icons.Default.History, contentDescription = null, tint = OpenVTextSecondary)
-                        },
+                        leadingIcon = { Icon(Icons.Default.History, contentDescription = null, tint = OpenVTextSecondary) },
                         onClick = {
                             menuExpanded = false
                             onOpenBookmarksAndHistory()
+                        }
+                    )
+
+                    // Downloads Manager
+                    DropdownMenuItem(
+                        text = { Text("Downloads", color = OpenVTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = OpenVTextSecondary) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenDownloads()
                         }
                     )
 
@@ -377,9 +459,7 @@ fun AddressBar(
                     // Share URL
                     DropdownMenuItem(
                         text = { Text("Compartilhar Link", color = OpenVTextPrimary) },
-                        leadingIcon = {
-                            Icon(Icons.Default.Share, contentDescription = null, tint = OpenVTextSecondary)
-                        },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = OpenVTextSecondary) },
                         onClick = {
                             menuExpanded = false
                             tab?.url?.let { url ->
@@ -390,8 +470,6 @@ fun AddressBar(
                                         type = "text/plain"
                                     }
                                     context.startActivity(Intent.createChooser(sendIntent, "Compartilhar Link"))
-                                } else {
-                                    Toast.makeText(context, "Página inicial interna", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -400,9 +478,7 @@ fun AddressBar(
                     // New Private Tab
                     DropdownMenuItem(
                         text = { Text("Nova Aba Privada", color = OpenVShieldGreen) },
-                        leadingIcon = {
-                            Icon(Icons.Default.Security, contentDescription = null, tint = OpenVShieldGreen)
-                        },
+                        leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, tint = OpenVShieldGreen) },
                         onClick = {
                             menuExpanded = false
                             onOpenNewPrivateTab()
@@ -412,9 +488,7 @@ fun AddressBar(
                     // Clear browsing data
                     DropdownMenuItem(
                         text = { Text("Limpar Dados de Navegação", color = OpenVAlertRed) },
-                        leadingIcon = {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = OpenVAlertRed)
-                        },
+                        leadingIcon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = OpenVAlertRed) },
                         onClick = {
                             menuExpanded = false
                             onClearData()

@@ -1,9 +1,12 @@
 package com.example.ui.browser
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -12,18 +15,29 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.BookmarkEntity
 import com.example.data.local.HistoryEntity
+import com.example.data.local.OsintReportEntity
 import com.example.data.local.UserPreferencesRepository
 import com.example.data.model.DnsConfiguration
 import com.example.data.model.DnsProvider
+import com.example.data.model.DownloadItem
+import com.example.data.model.PublicIpInfo
+import com.example.data.model.SearchCategory
 import com.example.data.model.SearchEngine
 import com.example.data.model.TabItem
 import com.example.data.model.VpnConnectionState
 import com.example.data.model.VpnProfile
 import com.example.data.repository.DnsRepository
 import com.example.data.repository.DnsRepositoryImpl
-import com.example.data.repository.VpnRepository
-import com.example.data.repository.VpnRepositoryImpl
-import com.example.data.repository.VpnSessionManager
+import com.example.download.OpenVDownloadManager
+import com.example.network.DnsOverHttpsClient
+import com.example.network.DoHQueryResult
+import com.example.network.HttpHeaderInspectionResult
+import com.example.network.NetworkSecurityClient
+import com.example.network.SocialProfileCheckResult
+import com.example.security.ExifInfo
+import com.example.security.ExifManager
+import com.example.security.TrackerBlocker
+import com.example.vpn.VpnManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,6 +47,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.InetAddress
 
 data class ConnectivityDiagnostic(
@@ -49,8 +64,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val db = AppDatabase.getInstance(application)
     private val bookmarkDao = db.bookmarkDao()
     private val historyDao = db.historyDao()
+    private val osintReportDao = db.osintReportDao()
     private val prefsRepo = UserPreferencesRepository(application)
 
+    // Security & Network Services
+    val dohClient = DnsOverHttpsClient()
+    val securityClient = NetworkSecurityClient()
+    val exifManager = ExifManager(application)
+    val downloadManager = OpenVDownloadManager(application)
+    val vpnManager = VpnManager(application, viewModelScope)
+
+    // Tab Management
     val tabManager = TabManager()
     val tabs: StateFlow<List<TabItem>> = tabManager.tabs
     val activeTabId: StateFlow<String> = tabManager.activeTabId
@@ -59,6 +83,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         tabList.find { it.id == currentId } ?: tabList.firstOrNull()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), tabManager.getActiveTab())
 
+    // Preferences
     val searchEngine: StateFlow<SearchEngine> = prefsRepo.searchEngineFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SearchEngine.DUCKDUCKGO)
 
@@ -74,72 +99,105 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val darkThemeEnabled: StateFlow<Boolean> = prefsRepo.darkThemeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    // VPN architecture & contracts
-    val vpnRepository: VpnRepository = VpnRepositoryImpl()
-    val vpnSessionManager = VpnSessionManager(vpnRepository)
-    val vpnState: StateFlow<VpnConnectionState> = vpnRepository.connectionState
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VpnConnectionState.NOT_CONFIGURED)
-    val vpnProfiles: StateFlow<List<VpnProfile>> = vpnRepository.availableProfiles
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val activeVpnProfile: StateFlow<VpnProfile?> = vpnRepository.activeProfile
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    // DNS architecture & contracts
+    // DNS repository
     val dnsRepository: DnsRepository = DnsRepositoryImpl(prefsRepo)
     val dnsConfiguration: StateFlow<DnsConfiguration> = dnsRepository.configuration
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DnsConfiguration())
 
-    // Bookmarks and History
+    // Bookmarks, History & OSINT Reports
     val bookmarks: StateFlow<List<BookmarkEntity>> = bookmarkDao.getAllBookmarks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val history: StateFlow<List<HistoryEntity>> = historyDao.getRecentHistory()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Diagnostics state
+    val osintReports: StateFlow<List<OsintReportEntity>> = osintReportDao.getAllReports()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val downloads: StateFlow<List<DownloadItem>> = downloadManager.downloads
+
+    // Diagnostics & Live Results
     private val _diagnosticState = MutableStateFlow<ConnectivityDiagnostic?>(null)
     val diagnosticState: StateFlow<ConnectivityDiagnostic?> = _diagnosticState.asStateFlow()
+
+    private val _dohQueryResult = MutableStateFlow<DoHQueryResult?>(null)
+    val dohQueryResult: StateFlow<DoHQueryResult?> = _dohQueryResult.asStateFlow()
+
+    private val _httpInspectionResult = MutableStateFlow<HttpHeaderInspectionResult?>(null)
+    val httpInspectionResult: StateFlow<HttpHeaderInspectionResult?> = _httpInspectionResult.asStateFlow()
+
+    private val _socialCheckResults = MutableStateFlow<List<SocialProfileCheckResult>>(emptyList())
+    val socialCheckResults: StateFlow<List<SocialProfileCheckResult>> = _socialCheckResults.asStateFlow()
+
+    private val _exifResult = MutableStateFlow<ExifInfo?>(null)
+    val exifResult: StateFlow<ExifInfo?> = _exifResult.asStateFlow()
+
+    private val _sanitizedImageFile = MutableStateFlow<File?>(null)
+    val sanitizedImageFile: StateFlow<File?> = _sanitizedImageFile.asStateFlow()
+
+    private val _rdapResult = MutableStateFlow<String?>(null)
+    val rdapResult: StateFlow<String?> = _rdapResult.asStateFlow()
 
     // Navigation trigger event to coordinate with active WebView
     private val _loadUrlEvent = MutableStateFlow<String?>(null)
     val loadUrlEvent: StateFlow<String?> = _loadUrlEvent.asStateFlow()
 
+    // Find in Page & Zoom controls
+    private val _findInPageQuery = MutableStateFlow<String?>(null)
+    val findInPageQuery: StateFlow<String?> = _findInPageQuery.asStateFlow()
+
+    private val _zoomAction = MutableStateFlow(0)
+    val zoomAction: StateFlow<Int> = _zoomAction.asStateFlow()
+
     fun clearLoadUrlEvent() {
         _loadUrlEvent.value = null
     }
 
-    fun navigateTo(rawInput: String) {
+    fun setFindInPageQuery(query: String?) {
+        _findInPageQuery.value = query
+    }
+
+    fun triggerZoomIn() {
+        _zoomAction.value = _zoomAction.value + 1
+    }
+
+    fun triggerZoomOut() {
+        _zoomAction.value = _zoomAction.value - 1
+    }
+
+    fun navigateTo(rawInput: String, category: SearchCategory = SearchCategory.WEB) {
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return
 
-        val urlToLoad = formatInputToUrl(trimmed, searchEngine.value)
+        val urlToLoad = formatInputToUrl(trimmed, searchEngine.value, category)
         tabManager.updateActiveTab { it.copy(url = urlToLoad, errorMessage = null) }
         _loadUrlEvent.value = urlToLoad
     }
 
-    private fun formatInputToUrl(input: String, currentSearchEngine: SearchEngine): String {
+    private fun formatInputToUrl(input: String, currentSearchEngine: SearchEngine, category: SearchCategory): String {
         if (input == "openv://home" || input == "about:blank") {
             return input
         }
         val lower = input.lowercase()
-        // If it starts with a protocol
-        if (lower.startsWith("https://") || lower.startsWith("http://")) {
-            return input
+        if (category == SearchCategory.WEB) {
+            if (lower.startsWith("https://") || lower.startsWith("http://")) {
+                return input
+            }
+            val hasSpaces = input.contains(" ")
+            val hasDot = input.contains(".")
+            if (!hasSpaces && hasDot && input.length >= 4) {
+                return "https://$input"
+            }
         }
-        // If it looks like a domain name (contains a dot, no spaces)
-        val hasSpaces = input.contains(" ")
-        val hasDot = input.contains(".")
-        if (!hasSpaces && hasDot && input.length >= 4) {
-            return "https://$input"
-        }
-        // Otherwise treat as search query
-        return currentSearchEngine.buildQueryUrl(input)
+        return currentSearchEngine.buildQueryUrl(input, category)
     }
 
     fun openNewTab(url: String = "openv://home", isPrivate: Boolean = false) {
         tabManager.openNewTab(url, isPrivate)
         _loadUrlEvent.value = url
-        vpnSessionManager.rotateSession()
+
+        // Rotate VPN session on new browser session if configured
+        vpnManager.triggerNewSessionRotation()
     }
 
     fun selectTab(tabId: String) {
@@ -161,8 +219,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleDesktopMode() {
         val current = activeTab.value?.isDesktopMode ?: false
-        val updated = !current
-        tabManager.updateActiveTab { it.copy(isDesktopMode = updated) }
+        tabManager.updateActiveTab { it.copy(isDesktopMode = !current) }
     }
 
     fun recordVisit(title: String, url: String, isPrivate: Boolean) {
@@ -210,18 +267,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun clearBrowsingData(context: Context, onComplete: () -> Unit = {}) {
         viewModelScope.launch(Dispatchers.Main) {
             try {
-                // Clear cookies
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.removeAllCookies(null)
                 cookieManager.flush()
-
-                // Clear web storage (localStorage, sessionStorage)
                 WebStorage.getInstance().deleteAllData()
 
-                // Clear WebView cache
                 val dummyWebView = WebView(context)
                 dummyWebView.clearCache(true)
                 dummyWebView.destroy()
+                TrackerBlocker.resetCounter()
             } catch (_: Exception) {}
 
             withContext(Dispatchers.IO) {
@@ -231,39 +285,107 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // Settings actions
     fun setSearchEngine(engine: SearchEngine) {
-        viewModelScope.launch {
-            prefsRepo.setSearchEngine(engine)
-        }
+        viewModelScope.launch { prefsRepo.setSearchEngine(engine) }
     }
 
     fun setDnsProvider(provider: DnsProvider) {
-        viewModelScope.launch {
-            dnsRepository.setProvider(provider)
-        }
+        viewModelScope.launch { dnsRepository.setProvider(provider) }
     }
 
     fun setCustomDnsUrl(url: String) {
-        viewModelScope.launch {
-            dnsRepository.setCustomDohUrl(url)
-        }
+        viewModelScope.launch { dnsRepository.setCustomDohUrl(url) }
     }
 
     fun setSafeBrowsing(enabled: Boolean) {
-        viewModelScope.launch {
-            prefsRepo.setSafeBrowsing(enabled)
-        }
+        viewModelScope.launch { prefsRepo.setSafeBrowsing(enabled) }
     }
 
     fun setBlockThirdPartyCookies(enabled: Boolean) {
-        viewModelScope.launch {
-            prefsRepo.setBlockThirdPartyCookies(enabled)
-        }
+        viewModelScope.launch { prefsRepo.setBlockThirdPartyCookies(enabled) }
+    }
+
+    fun setDesktopMode(enabled: Boolean) {
+        viewModelScope.launch { prefsRepo.setDesktopMode(enabled) }
     }
 
     fun setDarkTheme(enabled: Boolean) {
+        viewModelScope.launch { prefsRepo.setDarkTheme(enabled) }
+    }
+
+    // OSINT Real Actions
+    fun executeDoHQuery(domain: String, type: String = "A") {
         viewModelScope.launch {
-            prefsRepo.setDarkTheme(enabled)
+            val config = dnsConfiguration.value
+            val result = dohClient.resolve(
+                domain = domain,
+                recordType = type,
+                provider = config.provider,
+                customDohUrl = config.customDohUrl
+            )
+            _dohQueryResult.value = result
+        }
+    }
+
+    fun inspectUrlHeaders(url: String) {
+        viewModelScope.launch {
+            val result = securityClient.inspectHttpHeadersAndRedirects(url)
+            _httpInspectionResult.value = result.getOrNull()
+        }
+    }
+
+    fun checkUsernames(username: String) {
+        viewModelScope.launch {
+            val list = securityClient.checkUsernameProfiles(username)
+            _socialCheckResults.value = list
+        }
+    }
+
+    fun lookupRdap(target: String) {
+        viewModelScope.launch {
+            val result = securityClient.lookupRdap(target)
+            _rdapResult.value = result.getOrNull()
+        }
+    }
+
+    fun inspectExif(uri: Uri) {
+        viewModelScope.launch {
+            val result = exifManager.extractExif(uri)
+            _exifResult.value = result.getOrNull()
+        }
+    }
+
+    fun stripExif(uri: Uri) {
+        viewModelScope.launch {
+            val result = exifManager.stripMetadata(uri)
+            _sanitizedImageFile.value = result.getOrNull()
+        }
+    }
+
+    fun saveOsintReport(title: String, category: String, target: String, rawData: String, summary: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            osintReportDao.insertReport(
+                OsintReportEntity(
+                    title = title,
+                    category = category,
+                    target = target,
+                    rawData = rawData,
+                    summary = summary
+                )
+            )
+        }
+    }
+
+    fun deleteOsintReport(report: OsintReportEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            osintReportDao.deleteReport(report)
+        }
+    }
+
+    fun clearAllOsintReports() {
+        viewModelScope.launch(Dispatchers.IO) {
+            osintReportDao.clearAllReports()
         }
     }
 
@@ -286,7 +408,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             val isMetered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
 
-            // Real DNS resolution check (honest, tests Cloudflare/Quad9 root)
             val dnsResolved = try {
                 val address = InetAddress.getByName("one.one.one.one")
                 address.hostAddress != null
@@ -318,6 +439,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 localIp = localIp,
                 testedAt = System.currentTimeMillis()
             )
+
+            vpnManager.refreshPublicIp()
         }
     }
 }

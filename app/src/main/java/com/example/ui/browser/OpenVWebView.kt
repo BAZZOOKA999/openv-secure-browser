@@ -21,21 +21,19 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.example.data.model.TabItem
+import com.example.security.TrackerBlocker
 
 private const val DESKTOP_USER_AGENT =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -54,17 +52,20 @@ fun OpenVWebView(
     onSslStatusChanged: (Boolean) -> Unit,
     onErrorOccurred: (String) -> Unit,
     onSaveState: (Bundle) -> Unit,
+    onDownloadRequested: (url: String, userAgent: String, contentDisposition: String, mimeType: String) -> Unit,
     savedState: Bundle?,
     externalLoadUrl: String?,
     onExternalUrlConsumed: () -> Unit,
+    findQuery: String? = null,
+    zoomAction: Int = 0, // 1 = zoomIn, -1 = zoomOut
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    // Initialize Android Safe Browsing once if supported
+    // Initialize Safe Browsing
     LaunchedEffect(safeBrowsingEnabled) {
         if (safeBrowsingEnabled && WebViewFeature.isFeatureSupported(WebViewFeature.START_SAFE_BROWSING)) {
-            WebViewCompat.startSafeBrowsing(context) { /* Safe browsing initialized */ }
+            WebViewCompat.startSafeBrowsing(context) { /* initialized */ }
         }
     }
 
@@ -75,13 +76,12 @@ fun OpenVWebView(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
 
-            // Security Hardening
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = !tab.isPrivate
                 databaseEnabled = !tab.isPrivate
 
-                // Prevent access to local filesystem and content providers
+                // Prevent local file system access
                 allowFileAccess = false
                 allowContentAccess = false
                 allowFileAccessFromFileURLs = false
@@ -90,29 +90,24 @@ fun OpenVWebView(
                 // Block mixed HTTP/HTTPS content
                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-                // Prevent popups from automatically spawning
+                // Prevent automatic popups
                 javaScriptCanOpenWindowsAutomatically = false
                 setSupportMultipleWindows(false)
 
-                // Cache policy based on private mode
-                if (tab.isPrivate) {
-                    cacheMode = WebSettings.LOAD_NO_CACHE
-                } else {
-                    cacheMode = WebSettings.LOAD_DEFAULT
-                }
+                // Cache policy based on mode
+                cacheMode = if (tab.isPrivate) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
 
-                // Desktop Mode User Agent switcher
-                userAgentString = if (tab.isDesktopMode) {
-                    DESKTOP_USER_AGENT
-                } else {
-                    userAgentString
-                }
+                // Zoom controls
+                setSupportZoom(true)
+                builtInZoomControls = true
+                displayZoomControls = false
+
+                userAgentString = if (tab.isDesktopMode) DESKTOP_USER_AGENT else userAgentString
             }
 
-            // Cookie isolation policy
+            // Cookie policy
             val cookieManager = CookieManager.getInstance()
             if (tab.isPrivate) {
-                // In private tabs, accept session cookies temporarily, but do not retain
                 cookieManager.setAcceptCookie(true)
                 cookieManager.setAcceptThirdPartyCookies(this, false)
             } else {
@@ -120,19 +115,38 @@ fun OpenVWebView(
                 cookieManager.setAcceptThirdPartyCookies(this, !blockThirdPartyCookies)
             }
 
-            // Restore state if available
+            setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+                onDownloadRequested(url, userAgent, contentDisposition, mimetype)
+            }
+
             if (savedState != null) {
                 restoreState(savedState)
             }
         }
     }
 
-    BackHandler(enabled = tab.canGoBack) {
-        if (webView.canGoBack()) webView.goBack()
-    }
+    BackHandler(enabled = tab.canGoBack) { if (webView.canGoBack()) webView.goBack() }
 
     LaunchedEffect(safeBrowsingEnabled, webView) {
         webView.settings.safeBrowsingEnabled = safeBrowsingEnabled
+    }
+
+    // React to Find in Page query
+    LaunchedEffect(findQuery) {
+        if (!findQuery.isNullOrBlank()) {
+            webView.findAllAsync(findQuery)
+        } else {
+            webView.clearMatches()
+        }
+    }
+
+    // React to Zoom In / Out
+    LaunchedEffect(zoomAction) {
+        if (zoomAction > 0) {
+            webView.zoomIn()
+        } else if (zoomAction < 0) {
+            webView.zoomOut()
+        }
     }
 
     // Update settings when desktop mode or cookie policy changes
@@ -151,7 +165,6 @@ fun OpenVWebView(
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !blockThirdPartyCookies && !tab.isPrivate)
     }
 
-    // React to external URL load commands
     LaunchedEffect(externalLoadUrl) {
         if (externalLoadUrl != null && !externalLoadUrl.startsWith("openv://")) {
             webView.loadUrl(externalLoadUrl)
@@ -195,12 +208,10 @@ fun OpenVWebView(
                         origin: String?,
                         callback: GeolocationPermissions.Callback?
                     ) {
-                        // Strict security: do not give silent access to page geolocation
                         callback?.invoke(origin, false, false)
                     }
 
                     override fun onPermissionRequest(request: PermissionRequest?) {
-                        // Secure sandbox: deny automated camera/mic access from web pages
                         request?.deny()
                     }
                 }
@@ -213,32 +224,41 @@ fun OpenVWebView(
                         val url = request?.url?.toString() ?: return false
                         val uri = request.url
 
-                        // Handle HTTPS and HTTP
                         if (url.startsWith("https://") || url.startsWith("http://")) {
-                            return false // Let WebView load it
+                            return false
                         }
 
-                        // Handle external authorized intents safely (tel, mailto, geo)
                         val scheme = uri.scheme?.lowercase()
                         if (request.isForMainFrame && request.hasGesture() && (scheme == "tel" || scheme == "mailto" || scheme == "geo")) {
                             try {
-                                val intent = Intent(Intent.ACTION_VIEW, uri)
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
                                 context.startActivity(intent)
                             } catch (_: Exception) {}
                             return true
                         }
 
-                        // Block custom intent:// or apk downloads to protect user
                         return true
+                    }
+
+                    // Real Tracker Blocker interceptor
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): WebResourceResponse? {
+                        val reqUrl = request?.url?.toString() ?: return null
+                        if (TrackerBlocker.shouldBlockUrl(reqUrl)) {
+                            return TrackerBlocker.createEmptyResponse()
+                        }
+                        return super.shouldInterceptRequest(view, request)
                     }
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         onLoadingStateChanged(true)
                         if (url != null) {
                             onUrlChanged(url)
-                            val isHttps = url.startsWith("https://")
-                            onSslStatusChanged(isHttps)
+                            onSslStatusChanged(url.startsWith("https://"))
                         }
                         onNavigationStateChanged(view?.canGoBack() == true, view?.canGoForward() == true)
                     }
@@ -248,8 +268,7 @@ fun OpenVWebView(
                         onNavigationStateChanged(view?.canGoBack() == true, view?.canGoForward() == true)
                         if (url != null) {
                             onUrlChanged(url)
-                            val isHttps = url.startsWith("https://")
-                            onSslStatusChanged(isHttps)
+                            onSslStatusChanged(url.startsWith("https://"))
                         }
                     }
 
@@ -273,7 +292,6 @@ fun OpenVWebView(
                         handler: SslErrorHandler?,
                         error: SslError?
                     ) {
-                        // Strict SSL Policy: Cancel on SSL errors to prevent MITM
                         handler?.cancel()
                         onSslStatusChanged(false)
                         onErrorOccurred("Certificado SSL inválido ou inseguro.")
@@ -283,20 +301,17 @@ fun OpenVWebView(
                         view: WebView?,
                         detail: RenderProcessGoneDetail?
                     ): Boolean {
-                        // Prevent application crash if renderer runs out of memory or dies
                         onErrorOccurred("O processo do navegador foi reiniciado para liberar memória.")
                         return true
                     }
                 }
 
-                // Initial load if not on custom home
                 if (tab.url != "openv://home" && tab.url != "about:blank") {
                     loadUrl(tab.url)
                 }
             }
         },
         update = { wv ->
-            // Handle back/forward updates
             onNavigationStateChanged(wv.canGoBack(), wv.canGoForward())
         },
         modifier = modifier.fillMaxSize()

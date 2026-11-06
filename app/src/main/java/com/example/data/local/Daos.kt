@@ -42,3 +42,33 @@ interface HistoryDao {
     @Query("DELETE FROM history")
     suspend fun clearAllHistory()
 }
+
+@Dao
+interface OsintReportDao {
+    @Query("SELECT * FROM osint_reports ORDER BY createdAt DESC")
+    fun getAllReports(): Flow<List<OsintReportEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReport(report: OsintReportEntity): Long
+
+    @Delete
+    suspend fun deleteReport(report: OsintReportEntity)
+
+    @Query("DELETE FROM osint_reports")
+    suspend fun clearAllReports()
+}
+
+@Dao
+interface VpnProfileDao {
+    @Query("SELECT * FROM vpn_profiles ORDER BY name ASC")
+    fun getAllProfiles(): Flow<List<VpnProfileEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProfile(profile: VpnProfileEntity)
+
+    @Delete
+    suspend fun deleteProfile(profile: VpnProfileEntity)
+
+    @Query("DELETE FROM vpn_profiles WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
