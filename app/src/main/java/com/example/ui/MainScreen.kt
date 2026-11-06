@@ -106,7 +106,7 @@ fun MainScreen(viewModel: BrowserViewModel) {
     }
 
     // Handle Android system back gesture / button
-    BackHandler(enabled = true) {
+    BackHandler(enabled = showTabSwitcher || showBookmarksAndHistory || currentSectionIndex != 0 || (activeTab != null && activeTab?.url != "openv://home")) {
         when {
             showTabSwitcher -> showTabSwitcher = false
             showBookmarksAndHistory -> showBookmarksAndHistory = false
@@ -299,28 +299,28 @@ fun MainScreen(viewModel: BrowserViewModel) {
                                 blockThirdPartyCookies = blockThirdPartyCookies,
                                 safeBrowsingEnabled = safeBrowsingEnabled,
                                 onTitleChanged = { title ->
-                                    viewModel.tabManager.updateActiveTab { it.copy(title = title) }
+                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(title = title) }
                                 },
                                 onProgressChanged = { progress ->
-                                    viewModel.tabManager.updateActiveTab { it.copy(progress = progress) }
+                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(progress = progress) }
                                 },
                                 onLoadingStateChanged = { loading ->
-                                    viewModel.tabManager.updateActiveTab { it.copy(isLoading = loading) }
+                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(isLoading = loading) }
                                 },
                                 onNavigationStateChanged = { canBack, canForward ->
-                                    viewModel.tabManager.updateActiveTab {
+                                    viewModel.tabManager.updateTab(currentTab.id) {
                                         it.copy(canGoBack = canBack, canGoForward = canForward)
                                     }
                                 },
                                 onUrlChanged = { newUrl ->
-                                    viewModel.tabManager.updateActiveTab { it.copy(url = newUrl) }
+                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(url = newUrl) }
                                     viewModel.recordVisit(currentTab.title, newUrl, currentTab.isPrivate)
                                 },
                                 onSslStatusChanged = { isSsl ->
-                                    viewModel.tabManager.updateActiveTab { it.copy(sslCertificateValid = isSsl) }
+                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(sslCertificateValid = isSsl) }
                                 },
                                 onErrorOccurred = { errorMsg ->
-                                    viewModel.tabManager.updateActiveTab { it.copy(errorMessage = errorMsg, isLoading = false) }
+                                    viewModel.tabManager.updateTab(currentTab.id) { it.copy(errorMessage = errorMsg, isLoading = false) }
                                 },
                                 onSaveState = { bundle ->
                                     viewModel.tabManager.saveTabState(currentTab.id, bundle)

@@ -21,6 +21,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -126,6 +127,14 @@ fun OpenVWebView(
         }
     }
 
+    BackHandler(enabled = tab.canGoBack) {
+        if (webView.canGoBack()) webView.goBack()
+    }
+
+    LaunchedEffect(safeBrowsingEnabled, webView) {
+        webView.settings.safeBrowsingEnabled = safeBrowsingEnabled
+    }
+
     // Update settings when desktop mode or cookie policy changes
     LaunchedEffect(tab.isDesktopMode) {
         webView.settings.userAgentString = if (tab.isDesktopMode) {
@@ -166,6 +175,7 @@ fun OpenVWebView(
         }
     }
 
+    androidx.compose.runtime.key(tab.id) {
     AndroidView(
         factory = {
             webView.apply {
@@ -210,7 +220,7 @@ fun OpenVWebView(
 
                         // Handle external authorized intents safely (tel, mailto, geo)
                         val scheme = uri.scheme?.lowercase()
-                        if (scheme == "tel" || scheme == "mailto" || scheme == "geo") {
+                        if (request.isForMainFrame && request.hasGesture() && (scheme == "tel" || scheme == "mailto" || scheme == "geo")) {
                             try {
                                 val intent = Intent(Intent.ACTION_VIEW, uri)
                                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -291,4 +301,5 @@ fun OpenVWebView(
         },
         modifier = modifier.fillMaxSize()
     )
+    }
 }
